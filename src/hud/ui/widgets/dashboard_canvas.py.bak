@@ -1,0 +1,294 @@
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QWidget
+
+from hud.models.settings import AppSettings
+from hud.models.telemetry import TelemetrySnapshot
+
+
+@dataclass
+class DragState:
+    key: str | None = None
+    offset_x: float = 0.0
+    offset_y: float = 0.0
+
+
+class DashboardCanvas(QWidget):
+    widget_moved = Signal(dict)
+
+    def __init__(self, settings: AppSettings) -> None:
+        super().__init__()
+        self.settings = settings
+        self.snapshot = TelemetrySnapshot(connected=False, source="none")
+        self.drag = DragState()
+        self.setMinimumSize(900, 500)
+        self.setMouseTracking(True)
+
+    def set_settings(self, settings: AppSettings) -> None:
+        self.settings = settings
+        self.update()
+
+    def set_snapshot(self, snapshot: TelemetrySnapshot) -> None:
+        self.snapshot = snapshot
+        self.update()
+
+    def _actual_rect(self, key: str) -> QRectF:
+        p = self.settings.widget_positions.get(key, {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.1})
+        return QRectF(p["x"] * self.width(), p["y"] * self.height(), p["w"] * self.width(), p["h"] * self.height())
+
+    def _set_rect(self, key: str, rect: QRectF) -> None:
+        self.settings.widget_positions[key] = {
+            "x": max(0.0, min(1.0 - rect.width() / self.width(), rect.x() / self.width())),
+            "y": max(0.0, min(1.0 - rect.height() / self.height(), rect.y() / self.height())),
+            "w": rect.width() / self.width(),
+            "h": rect.height() / self.height(),
+        }
+        self.widget_moved.emit(self.settings.widget_positions)
+        self.update()
+
+    def _hit_test(self, pos) -> str | None:
+        for key in ["speed", "rpm", "fuel_level", "coolant_temp", "oil_temp", "oil_pressure", "battery_voltage", "cel"]:
+            if key not in self.settings.widget_positions:
+                continue
+            if key not in ("speed", "rpm") and not self.settings.widget_visibility.get(key, False):
+                continue
+            if self._actual_rect(key).contains(pos):
+                return key
+        return None
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() != Qt.LeftButton or self.settings.widget_locked:
+            return super().mousePressEvent(event)
+        pos = self._to_content_pos(event.position())
+        key = self._hit_test(pos)
+        if key is not None:
+            rect = self._actual_rect(key)
+            self.drag = DragState(key, pos.x() - rect.x(), pos.y() - rect.y())
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        pos = self._to_content_pos(event.position())
+        if self.drag.key:
+            key = self.drag.key
+            rect = self._actual_rect(key)
+            rect.moveTo(pos.x() - self.drag.offset_x, pos.y() - self.drag.offset_y)
+            rect.moveLeft(max(0.0, min(self.width() - rect.width(), rect.x())))
+            rect.moveTop(max(0.0, min(self.height() - rect.height(), rect.y())))
+            self._set_rect(key, rect)
+            event.accept()
+            return
+        hover = self._hit_test(pos)
+        self.setCursor(Qt.OpenHandCursor if hover and not self.settings.widget_locked else Qt.ArrowCursor)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self.drag = DragState()
+        self.setCursor(Qt.ArrowCursor)
+        super().mouseReleaseEvent(event)
+
+    def _to_content_pos(self, pointf) -> QPointF:
+        if not self.settings.mirrored:
+            return QPointF(pointf.x(), pointf.y())
+        return QPointF(self.width() - pointf.x(), pointf.y())
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.fillRect(self.rect(), QColor(self.settings.colors["background"]))
+        if self.settings.mirrored:
+            painter.translate(self.width(), 0)
+            painter.scale(-1, 1)
+        self._paint_cluster_surface(painter)
+        self._paint_widget(painter, "speed")
+        self._paint_widget(painter, "rpm")
+        for key in ["fuel_level", "coolant_temp", "oil_temp", "oil_pressure", "battery_voltage", "cel"]:
+            if self.settings.widget_visibility.get(key, False):
+                self._paint_widget(painter, key)
+        painter.end()
+
+    def _paint_cluster_surface(self, painter: QPainter) -> None:
+        rect = self.rect().adjusted(12, 12, -12, -12)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(rect), 26, 26)
+        painter.fillPath(path, QColor(self.settings.colors["panel"]))
+        painter.setPen(QPen(QColor(self.settings.colors["panel_border"]), 2))
+        painter.drawPath(path)
+
+    def _paint_widget(self, painter: QPainter, key: str) -> None:
+        rect = self._actual_rect(key)
+        if key == "speed":
+            self._paint_speed_widget(painter, rect)
+        elif key == "rpm":
+            self._paint_rpm_widget(painter, rect)
+        else:
+            self._paint_card_widget(painter, rect, key)
+
+    def _paint_speed_widget(self, painter: QPainter, rect: QRectF) -> None:
+        self._panel(painter, rect, 24)
+        style = self.settings.speed_style
+        if style == "analog":
+            self._paint_analog(painter, rect, self.snapshot.speed_kph, self.settings.max_speed_kph, "km/h", False)
+        elif style == "racing":
+            digits_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.10, rect.width(), rect.height() * 0.58)
+            self._draw_speed_digits(painter, digits_rect, show_status=False)
+            bar_rect = QRectF(rect.x() + rect.width() * 0.10, rect.y() + rect.height() * 0.78, rect.width() * 0.80, rect.height() * 0.06)
+            self._draw_linear_progress(painter, bar_rect, self.snapshot.speed_kph / max(1, self.settings.max_speed_kph), QColor(self.settings.colors["speed"]))
+        else:
+            self._draw_speed_digits(painter, rect, show_status=False)
+
+    def _draw_speed_digits(self, painter: QPainter, rect: QRectF, show_status: bool = False) -> None:
+        digits_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.04, rect.width(), rect.height() * 0.56)
+        unit_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.64, rect.width(), rect.height() * 0.12)
+        status_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.82, rect.width(), rect.height() * 0.10)
+        painter.setPen(QColor(self.settings.colors["speed"]))
+        painter.setFont(QFont("Arial", max(34, int(rect.height() * 0.40)), QFont.Bold))
+        painter.drawText(digits_rect, Qt.AlignCenter, f"{int(self.snapshot.speed_kph):03d}")
+        painter.setFont(QFont("Arial", max(10, int(rect.height() * 0.09)), QFont.Bold))
+        painter.setPen(QColor(self.settings.colors["muted"]))
+        painter.drawText(unit_rect, Qt.AlignHCenter | Qt.AlignTop, "km/h")
+        if show_status:
+            painter.drawText(status_rect, Qt.AlignCenter, "NO SIGNAL" if not self.snapshot.connected else "READY")
+
+    def _paint_rpm_widget(self, painter: QPainter, rect: QRectF) -> None:
+        self._panel(painter, rect, 24)
+        style = self.settings.rpm_style
+        if style == "analog":
+            self._paint_analog(painter, rect, self.snapshot.rpm, self.settings.max_rpm, "RPM", True)
+        elif style == "racing":
+            self._paint_racing_rpm(painter, rect)
+        else:
+            self._paint_digital_rpm(painter, rect)
+
+    def _paint_digital_rpm(self, painter: QPainter, rect: QRectF) -> None:
+        top_labels = QRectF(rect.x() + rect.width() * 0.10, rect.y() + rect.height() * 0.08, rect.width() * 0.80, rect.height() * 0.20)
+        bar_rect = QRectF(rect.x() + rect.width() * 0.10, rect.y() + rect.height() * 0.40, rect.width() * 0.80, rect.height() * 0.22)
+        max_bands = max(2, math.ceil(self.settings.max_rpm / 500))
+        band_w = bar_rect.width() / max_bands
+        active = int(round((self.snapshot.rpm / max(1, self.settings.max_rpm)) * max_bands))
+        for i in range(max_bands):
+            band = QRectF(bar_rect.x() + i * band_w + 2, bar_rect.y(), band_w - 4, bar_rect.height())
+            band_start = i * 500
+            band_end = band_start + 500
+            color = self.settings.colors["rpm_redline"] if band_end > self.settings.redline_rpm else self.settings.colors["rpm_normal"]
+            painter.fillRect(band, QColor(color if i < active else "#102132"))
+        for label in range(1, (self.settings.max_rpm // 1000) + 1):
+            x = top_labels.x() + top_labels.width() * (label * 1000 / max(1, self.settings.max_rpm))
+            painter.setPen(QColor(self.settings.colors["rpm_redline"] if label * 1000 >= self.settings.redline_rpm else self.settings.colors["text"]))
+            painter.setFont(QFont("Arial", max(9, int(rect.height() * 0.14)), QFont.Bold))
+            painter.drawText(QRectF(x - 12, top_labels.y(), 24, top_labels.height()), Qt.AlignCenter, str(label))
+
+    def _paint_racing_rpm(self, painter: QPainter, rect: QRectF) -> None:
+        center_gap = rect.width() * 0.04
+        usable_width = rect.width() * 0.82
+        total_bands = max(4, math.ceil(self.settings.max_rpm / 500))
+        half_bands = total_bands // 2
+        left_rect = QRectF(rect.center().x() - center_gap / 2 - usable_width / 2, rect.y() + rect.height() * 0.36, usable_width / 2, rect.height() * 0.26)
+        right_rect = QRectF(rect.center().x() + center_gap / 2, rect.y() + rect.height() * 0.36, usable_width / 2, rect.height() * 0.26)
+        frac = max(0.0, min(1.0, self.snapshot.rpm / max(1, self.settings.max_rpm)))
+        active_left = int(round(frac * half_bands))
+        active_right = int(round(frac * (total_bands - half_bands)))
+        segw_left = left_rect.width() / max(1, half_bands)
+        segw_right = right_rect.width() / max(1, total_bands - half_bands)
+        for i in range(half_bands):
+            idx = half_bands - 1 - i
+            seg = QRectF(left_rect.right() - (i + 1) * segw_left + 2, left_rect.y(), segw_left - 4, left_rect.height())
+            band_end = (idx + 1) * 500
+            color = self.settings.colors["rpm_redline"] if band_end > self.settings.redline_rpm else self.settings.colors["rpm_normal"]
+            painter.fillRect(seg, QColor(color if i < active_left else "#102132"))
+        for i in range(total_bands - half_bands):
+            idx = half_bands + i
+            seg = QRectF(right_rect.x() + i * segw_right + 2, right_rect.y(), segw_right - 4, right_rect.height())
+            band_end = (idx + 1) * 500
+            color = self.settings.colors["rpm_redline"] if band_end > self.settings.redline_rpm else self.settings.colors["rpm_normal"]
+            painter.fillRect(seg, QColor(color if i < active_right else "#102132"))
+        painter.setPen(QColor(self.settings.colors["text"]))
+        painter.setFont(QFont("Arial", max(9, int(rect.height() * 0.13)), QFont.Bold))
+        for label in range(1, (self.settings.max_rpm // 1000) + 1):
+            x = rect.x() + rect.width() * (label * 1000 / max(1, self.settings.max_rpm))
+            painter.setPen(QColor(self.settings.colors["rpm_redline"] if label * 1000 >= self.settings.redline_rpm else self.settings.colors["text"]))
+            painter.drawText(QRectF(x - 12, rect.y() + rect.height() * 0.10, 24, rect.height() * 0.14), Qt.AlignCenter, str(label))
+
+    def _paint_analog(self, painter: QPainter, rect: QRectF, value: float, maximum: int, unit: str, has_redline: bool) -> None:
+        cx, cy = rect.center().x(), rect.center().y() + rect.height() * 0.10
+        radius = min(rect.width(), rect.height()) * 0.34
+        start = 220
+        span = 260
+        arc_rect = QRectF(cx - radius, cy - radius, radius * 2, radius * 2)
+        frac = max(0.0, min(1.0, value / max(1, maximum)))
+        cap = Qt.PenCapStyle.RoundCap
+        if self.settings.analog_mode == "arc":
+            painter.setPen(QPen(QColor("#112333"), 10, cap=cap))
+            painter.drawArc(arc_rect, (90 - start) * 16, -span * 16)
+            arc_color = self.settings.colors["rpm_redline"] if has_redline and value >= self.settings.redline_rpm else (self.settings.colors["rpm_normal"] if has_redline else self.settings.colors["speed"])
+            painter.setPen(QPen(QColor(arc_color), 10, cap=cap))
+            painter.drawArc(arc_rect, (90 - start) * 16, -int(span * frac * 16))
+        else:
+            painter.setPen(QPen(QColor(self.settings.colors["ticks"]), 2))
+            for i in range(11):
+                t = i / 10
+                ang = math.radians(start - span * t)
+                p1 = QPointF(cx + math.cos(ang) * radius * 0.80, cy - math.sin(ang) * radius * 0.80)
+                p2 = QPointF(cx + math.cos(ang) * radius * 0.96, cy - math.sin(ang) * radius * 0.96)
+                painter.drawLine(p1, p2)
+            ang = math.radians(start - span * frac)
+            needle = QPointF(cx + math.cos(ang) * radius * 0.72, cy - math.sin(ang) * radius * 0.72)
+            needle_color = self.settings.colors["rpm_redline"] if has_redline and value >= self.settings.redline_rpm else (self.settings.colors["rpm_normal"] if has_redline else self.settings.colors["speed"])
+            painter.setPen(QPen(QColor(needle_color), 4, cap=cap))
+            painter.drawLine(QPointF(cx, cy), needle)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(self.settings.colors["text"]))
+            painter.drawEllipse(QPointF(cx, cy), 5, 5)
+        painter.setPen(QColor(self.settings.colors["muted"]))
+        painter.setFont(QFont("Arial", max(10, int(rect.height() * 0.08)), QFont.Bold))
+        painter.drawText(QRectF(rect.x(), rect.y() + rect.height() * 0.12, rect.width(), rect.height() * 0.10), Qt.AlignCenter, unit)
+    def _paint_card_widget(self, painter: QPainter, rect: QRectF, key: str) -> None:
+        self._panel(painter, rect, 18)
+        names = {
+            "fuel_level": "Fuel",
+            "coolant_temp": "Coolant",
+            "oil_temp": "Oil temp",
+            "oil_pressure": "Oil pressure",
+            "battery_voltage": "Voltage",
+            "cel": "Check engine",
+        }
+        values = {
+            "fuel_level": "--" if self.snapshot.fuel_level is None else f"{self.snapshot.fuel_level:.0f}%",
+            "coolant_temp": "--" if self.snapshot.coolant_temp_c is None else f"{self.snapshot.coolant_temp_c:.0f}°C",
+            "oil_temp": "--" if self.snapshot.oil_temp_c is None else f"{self.snapshot.oil_temp_c:.0f}°C",
+            "oil_pressure": "--" if self.snapshot.oil_pressure_kpa is None else f"{self.snapshot.oil_pressure_kpa:.0f} kPa",
+            "battery_voltage": "--" if self.snapshot.battery_voltage is None else f"{self.snapshot.battery_voltage:.1f} V",
+            "cel": "ON" if self.snapshot.cel_active else "OFF",
+        }
+        painter.setPen(QColor(self.settings.colors["muted"]))
+        painter.setFont(QFont("Arial", max(9, int(rect.height() * 0.16))))
+        painter.drawText(QRectF(rect.x() + 12, rect.y() + 10, rect.width() - 24, rect.height() * 0.22), Qt.AlignLeft | Qt.AlignVCenter, names[key])
+        painter.setPen(QColor(self.settings.colors["warning"] if key == "cel" and self.snapshot.cel_active else self.settings.colors["text"]))
+        painter.setFont(QFont("Arial", max(14, int(rect.height() * 0.24)), QFont.Bold))
+        painter.drawText(QRectF(rect.x() + 12, rect.y() + rect.height() * 0.28, rect.width() - 24, rect.height() * 0.24), Qt.AlignLeft | Qt.AlignVCenter, values[key])
+        if key in {"fuel_level", "coolant_temp"}:
+            val = self.snapshot.fuel_level if key == "fuel_level" else self.snapshot.coolant_temp_c
+            frac = 0.0 if val is None else (val / 100.0 if key == "fuel_level" else min(1.0, max(0.0, val / 120.0)))
+            color = QColor(self.settings.colors["fuel"] if key == "fuel_level" else self.settings.colors["coolant"])
+            self._draw_linear_progress(painter, QRectF(rect.x() + 12, rect.bottom() - rect.height() * 0.22, rect.width() - 24, rect.height() * 0.10), frac, color)
+
+    def _draw_linear_progress(self, painter: QPainter, rect: QRectF, frac: float, color: QColor) -> None:
+        frac = max(0.0, min(1.0, frac))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#102132"))
+        painter.drawRoundedRect(rect, 5, 5)
+        fill = QRectF(rect.x(), rect.y(), rect.width() * frac, rect.height())
+        painter.setBrush(color)
+        painter.drawRoundedRect(fill, 5, 5)
+
+    def _panel(self, painter: QPainter, rect: QRectF, radius: float) -> None:
+        painter.setPen(QPen(QColor(self.settings.colors["panel_border"]), 1.5))
+        painter.setBrush(QColor(self.settings.colors["panel"]))
+        painter.drawRoundedRect(rect, radius, radius)

@@ -1,0 +1,163 @@
+{
+  "mirrored": false,
+  "fullscreen": true,
+  "ui_scale_percent": 100,
+  "max_rpm": 8000,
+  "max_speed_kph": 240,
+  "redline_rpm": 6500,
+  "speed_style": "digital",
+  "rpm_style": "analog",
+  "analog_mode": "arc",
+  "analog_show_value": false,
+  "layout_grid_enabled": true,
+  "layout_grid_size_px": 32,
+  "colors": {
+    "background": "#000000",
+    "panel": "#101721",
+    "panel_border": "#16324B",
+    "speed": "#ffffff",
+    "rpm_normal": "#ffffff",
+    "rpm_redline": "#FF0000",
+    "fuel": "#FFD166",
+    "coolant": "#60C7FF",
+    "warning": "#FF7B72",
+    "text": "#8aa0b2",
+    "ticks": "#8aa0b2",
+    "indicator": "#00E5FF",
+    "muted": "#6E7F91",
+    "panel_edge": "#1E2A36"
+  },
+  "widget_visibility": {
+    "fuel_level": false,
+    "fuel_consumption": false,
+    "coolant_temp": false,
+    "oil_temp": false,
+    "throttle_position": false,
+    "battery_voltage": false,
+    "cel": false,
+    "oil_pressure": true
+  },
+  "widget_order": [
+    "speed",
+    "rpm"
+  ],
+  "widget_positions": {
+    "battery_voltage": {
+      "h": 0.14,
+      "w": 0.18000000000000002,
+      "x": 0.7822916666666666,
+      "y": 0.5103655210038189
+    },
+    "cel": {
+      "h": 0.12,
+      "w": 0.16,
+      "x": 0.07625000000000004,
+      "y": 0.3776923076923077
+    },
+    "coolant_temp": {
+      "h": 0.3333333333333333,
+      "w": 0.4166666666666667,
+      "x": 0.5833333333333333,
+      "y": 0.3333333333333333
+    },
+    "fuel_consumption": {
+      "h": 0.3333333333333333,
+      "w": 0.25,
+      "x": 0.0,
+      "y": 0.6666666666666666
+    },
+    "fuel_level": {
+      "h": 0.3333333333333333,
+      "w": 0.3333333333333333,
+      "x": 0.25,
+      "y": 0.6666666666666666
+    },
+    "oil_temp": {
+      "h": 0.3333333333333333,
+      "w": 0.4166666666666667,
+      "x": 0.5833333333333333,
+      "y": 0.0
+    },
+    "rpm": {
+      "h": 0.6666666666666666,
+      "w": 0.5833333333333334,
+      "x": 0.0,
+      "y": 0.0
+    },
+    "speed": {
+      "h": 0.8333333333333334,
+      "w": 0.4791666666666667,
+      "x": 0.4375,
+      "y": 0.0
+    },
+    "throttle_position": {
+      "h": 0.3333333333333333,
+      "w": 0.4166666666666667,
+      "x": 0.5833333333333333,
+      "y": 0.6666666666666666
+    }
+  },
+  "widget_bar_orientation": {
+    "fuel_level": "horizontal",
+    "fuel_consumption": "horizontal",
+    "coolant_temp": "horizontal",
+    "oil_temp": "horizontal",
+    "throttle_position": "horizontal",
+    "battery_voltage": "horizontal",
+    "cel": "horizontal"
+  },
+  "widget_thresholds": {
+    "fuel_level": {
+      "min": 15.0,
+      "max": 100.0
+    },
+    "fuel_consumption": {
+      "min": 0.0,
+      "max": 20.0
+    },
+    "coolant_temp": {
+      "min": 70.0,
+      "max": 105.0
+    },
+    "oil_temp": {
+      "min": 70.0,
+      "max": 125.0
+    },
+    "throttle_position": {
+      "min": 0.0,
+      "max": 100.0
+    },
+    "battery_voltage": {
+      "min": 11.8,
+      "max": 14.8
+    },
+    "cel": {
+      "min": 0.0,
+      "max": 0.0
+    }
+  },
+  "widget_locked": true,
+  "connection": {
+    "autodetect": false,
+    "port": "socket://127.0.0.1:35000",
+    "baudrate": 38400,
+    "protocol": "auto",
+    "fast_mode": false,
+    "poll_interval_ms": 120,
+    "auto_connect_enabled": false,
+    "auto_connect_retry_interval_ms": 1000,
+    "connection_type": "tcp",
+    "tcp_host": "127.0.0.1",
+    "tcp_port": 35000,
+    "speed_rpm_only": false
+  },
+  "telemetry": {
+    "sample_interval_ms": 500,
+    "graph_history_seconds": 300,
+    "graph_full_session": false,
+    "auto_export_enabled": false,
+    "auto_export_dir": "",
+    "export_format": "xlsx"
+  },
+  "preset_names": []
+}
