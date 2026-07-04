@@ -21,6 +21,13 @@ Interfața principală oferă un tablou de bord configurabil, alcătuit din widg
 
 Pe lângă afișarea telemetriei în timp real, aplicația include monitorizarea evoluției parametrilor în timp și funcții de diagnosticare prin citirea și interpretarea codurilor de eroare DTC. Astfel, proiectul oferă o soluție practică pentru monitorizarea parametrilor importanți ai mașinii și accesarea rapidă a informațiilor de diagnosticare.
 
+Aplicația a fost testată în fază inițială utilizând un emulator de ELM327, dezvoltat in C#/.NET cu interfață WPF.Acesta simulează comunicarea OBD-II prin TCP/IP sau port serial COM, permițând testarea fără conectarea directă la un autovehicul real.
+Codul sursă este disponibil la adresa:
+
+```text
+https://github.com/serban-mihaltan/ELM327_Emulator
+```
+
 ## 3. Funcționalități principale
 
 - afișarea în timp real a datelor preluate prin OBD-II;
