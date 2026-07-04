@@ -7,7 +7,7 @@ Codul sursă al proiectului este disponibil la adresa:
 https://github.com/serban-mihaltan/HEAD-UP-DISPLAY-CU-FUNC-IONALIT-I-DE-TELEMETRIE-I-GESTIONARE-A-ERORILOR
 ```
 
-Repository-ul conține codul sursă complet al aplicației, fără fișiere binare compilate, fără directoare de build și fără executabile generate. Fișierele executabile sau instalatoarele, dacă sunt generate, trebuie publicate separat în secțiunea **Releases** a repository-ului.
+
 
 ## 2. Descrierea proiectului
 
