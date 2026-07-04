@@ -1,0 +1,6 @@
+# Python version recommended/tested: 3.13.5
+# Runtime dependencies for Automotive HUD / OBD-II application
+
+PySide6>=6.6,<7
+obd>=0.7.2
+pyserial>=3.5
